@@ -9,6 +9,9 @@ import {IManager} from "./interfaces/IManager.sol";
 import {IStrategy} from "./interfaces/IStrategy.sol";
 import {IStrategyRegistry} from "./interfaces/registry/IStrategyRegistry.sol";
 
+import {IRiskEngine} from "./interfaces/IRiskEngine.sol";
+import {IFund} from "./interfaces/IFund.sol";
+
 // errors
 error NotOwner();
 error NotFund();
@@ -37,6 +40,7 @@ contract Manager is IManager, ReentrancyGuard {
     address public asset;
     address public strategyRegistry;
     address public owner;
+    address public riskEngine;
     address[] internal _strategies;
 
     mapping(address => uint16) public strategyWeight;
@@ -68,7 +72,8 @@ contract Manager is IManager, ReentrancyGuard {
         address fund_,
         address asset_,
         address owner_,
-        address strategyRegistry_
+        address strategyRegistry_,
+        address riskEngine_
     ) external {
         if (initialized) revert AlreadyInitialized();
         if (fund_ == address(0) || asset_ == address(0) || owner_ == address(0) || strategyRegistry_ == address(0)) {
@@ -79,8 +84,14 @@ contract Manager is IManager, ReentrancyGuard {
         asset = asset_;
         owner = owner_;
         strategyRegistry = strategyRegistry_;
+        riskEngine = riskEngine_;
 
         initialized = true;
+    }
+
+    function setRiskEngine(address newRiskEngine) external override onlyInitialized onlyFund {
+        if (newRiskEngine == address(0)) revert ZeroAddress();
+        riskEngine = newRiskEngine;
     }
 
     //view
@@ -243,11 +254,12 @@ contract Manager is IManager, ReentrancyGuard {
         }
 
         _validateWeightsSum();
+        _refreshRisk();
     }
 
     function drainRemoving() external onlyInitialized onlyFund nonReentrant {
-    _drainRemovingStrategies();
-    }   
+        _drainRemovingStrategies();
+    }
 
     //manager owner only
     function addStrategyViaImplementation(address strategyImplementation, uint16 weightBps)
@@ -282,10 +294,10 @@ contract Manager is IManager, ReentrancyGuard {
         allocationCarry[newStrategyInstance] = 0;
 
         _validateWeightsSum();
+        _refreshRisk();
 
         emit StrategyAdded(strategyImplementation, newStrategyInstance, weightBps);
     }
-
 
     function removeStrategyInstance(address strategyInstance)
         external
@@ -317,6 +329,7 @@ contract Manager is IManager, ReentrancyGuard {
         }
 
         _validateWeightsSum();
+        _refreshRisk();
     }
 
     function updateStrategyWeights(address[] calldata strategyInstances, uint16[] calldata weightsBps)
@@ -342,6 +355,7 @@ contract Manager is IManager, ReentrancyGuard {
         }
 
         _validateWeightsSum();
+        _refreshRisk();
 
         emit WeightsUpdated(strategyInstances, weightsBps);
     }
@@ -515,6 +529,14 @@ contract Manager is IManager, ReentrancyGuard {
             found = true;
         }
         if (!found) lastIndex = 0;
+    }
+
+    function _refreshRisk() internal {
+        address re = riskEngine;
+        if (re == address(0)) return;
+
+        (uint8 tier, uint32 score) = IRiskEngine(re).computeRisk(address(this));
+        IFund(fund).setRisk(tier, score);
     }
 
     function _finalizeRemoval(address strategyInstance) internal {

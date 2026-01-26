@@ -2,5 +2,6 @@
 pragma solidity ^0.8.20;
 
 interface IRiskEngine {
-    function compute(address[] calldata strategies, uint16[] calldata weightsBps) external view returns (uint32 score, uint8 tier);
+    //view
+    function computeRisk(address manager) external view returns (uint8 riskTier, uint32 riskScore);
 }

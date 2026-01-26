@@ -20,10 +20,14 @@ interface IManager {
     function strategyWeight(address strategyInstance) external view returns (uint16);
     function getAllocation() external view returns (address[] memory strategyInstances, uint16[] memory weightsBps);
     function strategyRegistry() external view returns (address);
+    function riskEngine() external view returns (address);
 
     //write
     function allocate(uint256 assets) external;
     function deallocate(uint256 assets) external returns (uint256 freed);
+
+    //only fund
+    function setRiskEngine(address newRiskEngine) external;
 
     //governance and manager owner only
     function addStrategyViaImplementation(address strategyImplementation, uint16 weightBps) external returns (address newStrategyInstance);

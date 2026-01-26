@@ -35,6 +35,7 @@ contract ProductFactory is IProductFactory {
     address public assetRegistry;
     address public feeCollector;
     address public withdrawalQueue;
+    address public riskEngine;
 
     constructor(
         address fundImpl,
@@ -44,6 +45,7 @@ contract ProductFactory is IProductFactory {
         address assetReg,
         address feeCollector_,
         address withdrawalQueue_,
+        address riskEngine_,
         address owner_
     ) {
         if (
@@ -54,6 +56,7 @@ contract ProductFactory is IProductFactory {
             assetReg == address(0) ||
             feeCollector_ == address(0) ||
             withdrawalQueue_ == address(0) ||
+            riskEngine_ == address(0) ||
             owner_ == address(0)
         ) revert ZeroAddress();
 
@@ -64,6 +67,7 @@ contract ProductFactory is IProductFactory {
         assetRegistry = assetReg;
         feeCollector = feeCollector_;
         withdrawalQueue = withdrawalQueue_;
+        riskEngine = riskEngine_;
         owner = owner_;
     }
 
@@ -125,6 +129,7 @@ contract ProductFactory is IProductFactory {
 
         IManagerInit(manager).initialize(
             fund,
+            riskEngine,
             p.asset,
             productOwner,
             strategyRegistry
@@ -200,6 +205,15 @@ contract ProductFactory is IProductFactory {
         feeCollector = feeCollector_;
         withdrawalQueue = withdrawalQueue_;
         emit DefaultsUpdated(feeCollector_, withdrawalQueue_);
+    }
+
+    function setRiskEngine(address riskEngine_)
+        external
+        isOwner
+        isValid(riskEngine_)
+    {
+        riskEngine = riskEngine_;
+        emit RiskEngineUpdated(riskEngine_);
     }
 
     function transferOwnership(address newOwner)

@@ -35,6 +35,7 @@ interface IStrategyRegistry {
     function approvedAt(address implementation) external view returns (uint64);
     function isActive(address implementation) external view returns (bool);
     function supportsAsset(address implementation, address asset) external view returns (bool);
+    function isApproved(address implementation) external view returns (bool);
 
     //governance
     function approveStrategy(address implementation, StrategyInfo calldata info) external;

@@ -31,6 +31,8 @@ contract Fund is IFund, ERC20, ReentrancyGuard {
     FeeConfig private _feeConfig;
     address public withdrawalQueue;
     address public feeCollector;
+    uint8 public riskTier;
+    uint32 public riskScore;
 
     constructor() ERC20("Dargent Fund Share", "dFUND") {}
 
@@ -73,6 +75,10 @@ contract Fund is IFund, ERC20, ReentrancyGuard {
 
         bool ok = IERC20(asset_).approve(withdrawalQueue_, type(uint256).max);
         if (!ok) revert TransferFailed();
+
+        //when manager add the the strategies it will refresh the risk
+        riskTier = 0;
+        riskScore = 0;
 
         initialized = true;
     }
@@ -135,6 +141,16 @@ contract Fund is IFund, ERC20, ReentrancyGuard {
         return (shares * total) / supply;
     }
 
+    function setRisk(uint8 tier, uint32 score)
+        external
+        override
+        onlyInitialized
+        onlyManager
+    {
+        riskTier = tier;
+        riskScore = score;
+    }
+
     //write
     function deposit(uint256 assets_, address receiver)
         external
@@ -149,7 +165,9 @@ contract Fund is IFund, ERC20, ReentrancyGuard {
 
         uint256 totalBefore = totalAssets();
         uint256 supply = totalSupply();
-        if (supply == 0 || totalBefore == 0) {shares = assets_;} else {
+        if (supply == 0 || totalBefore == 0) {
+            shares = assets_;
+        } else {
             shares = (assets_ * supply) / totalBefore;
         }
 
@@ -195,7 +213,6 @@ contract Fund is IFund, ERC20, ReentrancyGuard {
         return shares;
     }
 
-
     //withdrawals
     function requestWithdraw(
         uint256 shares,
@@ -235,7 +252,7 @@ contract Fund is IFund, ERC20, ReentrancyGuard {
         nonReentrant
     {
         IFeeCollector(feeCollector).accrue(address(this));
-        ( , uint256 pendingAssets) = IWithdrawalQueue(withdrawalQueue).pending(address(this));
+        (, uint256 pendingAssets) = IWithdrawalQueue(withdrawalQueue).pending(address(this));
 
         uint256 idle = IERC20(asset).balanceOf(address(this));
 

@@ -19,7 +19,7 @@ interface IProductFactory {
         uint16[]  weightsBps;
     }
 
-    //events
+    // events
     event ProductCreated(
         address indexed fund,
         address indexed manager,
@@ -30,26 +30,51 @@ interface IProductFactory {
         address feeCollector,
         address withdrawalQueue
     );
+
     event ProductAllocationConfigured(
         address indexed manager,
         address[] strategyImplementations,
         uint16[] weightsBps
     );
-    event RegistriesUpdated(address productRegistry, address strategyRegistry, address assetRegistry);
-    event DefaultsUpdated(address feeCollector, address withdrawalQueue);
-    event FactoryOwnerUpdated(address indexed oldOwner, address indexed newOwner);
 
-    //view
+    event RegistriesUpdated(
+        address productRegistry,
+        address strategyRegistry,
+        address assetRegistry
+    );
+
+    event DefaultsUpdated(
+        address feeCollector,
+        address withdrawalQueue
+    );
+
+    event RiskEngineUpdated(
+        address indexed newRiskEngine
+    );
+
+    event FactoryOwnerUpdated(
+        address indexed oldOwner,
+        address indexed newOwner
+    );
+
+    // view
     function fundImplementation() external view returns (address);
     function managerImplementation() external view returns (address);
+
     function productRegistry() external view returns (address);
     function strategyRegistry() external view returns (address);
     function assetRegistry() external view returns (address);
+
     function feeCollector() external view returns (address);
     function withdrawalQueue() external view returns (address);
+    function riskEngine() external view returns (address);
 
-    //create
+    // create
     function createProduct(CreateParams calldata p)
         external
-        returns (address fund, address manager, address[] memory strategyInstances);
+        returns (
+            address fund,
+            address manager,
+            address[] memory strategyInstances
+        );
 }
