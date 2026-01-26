@@ -1,0 +1,1 @@
+seria legal ter alguma forma de indexar os produtos por criador deles, tenho que pensar sobre isso ainda
