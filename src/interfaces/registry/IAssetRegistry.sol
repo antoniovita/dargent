@@ -50,4 +50,5 @@ interface IAssetRegistry {
     function setStatus(address asset, Status newStatus) external;
     function setMetadataURI(address asset, string calldata newURI) external;
     function setDecimals(address asset, uint8 newDecimals) external;
+    function transferGovernance(address newGov) external;
 }

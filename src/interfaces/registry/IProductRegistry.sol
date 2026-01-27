@@ -71,4 +71,5 @@ interface IProductRegistry {
     function setMetadataURI(address fund, string calldata newURI) external;
     function setFactoryAllowed(address factory, bool allowed) external;
     function setOwnerURI(address productOwner, string calldata newURI) external;
+    function transferGovernance(address newGov) external;
 }

@@ -43,4 +43,5 @@ interface IStrategyRegistry {
     function setRisk( address implementation, uint8 newRiskTier, uint32 newRiskScore, bool newIsLiquid) external;
     function setMetadataURI(address implementation, string calldata newURI) external;
     function setAssetSupport(address implementation, address asset, bool supported) external;
+    function transferGovernance(address newGov) external;
 }
