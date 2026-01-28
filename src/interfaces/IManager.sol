@@ -21,6 +21,7 @@ interface IManager {
     function getAllocation() external view returns (address[] memory strategyInstances, uint16[] memory weightsBps);
     function strategyRegistry() external view returns (address);
     function riskEngine() external view returns (address);
+    function strategyImplementationOf(address instance) external view returns(address);
 
     //write
     function allocate(uint256 assets) external;

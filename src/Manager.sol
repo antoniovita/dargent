@@ -46,7 +46,7 @@ contract Manager is IManager, ReentrancyGuard {
     mapping(address => uint16) public strategyWeight;
     mapping(address => bool) internal _isStrategy;
     mapping(address => bool) internal _implUsed;
-    mapping(address => address) public strategyImplementationOf;
+    mapping(address => address) public _strategyImplementationOf;
     mapping(address => bool) public isRemoving;
     mapping(address => uint16) public removingWeightBps;
     mapping(address => uint256) internal allocationCarry;
@@ -76,7 +76,13 @@ contract Manager is IManager, ReentrancyGuard {
         address riskEngine_
     ) external {
         if (initialized) revert AlreadyInitialized();
-        if (fund_ == address(0) || asset_ == address(0) || owner_ == address(0) || strategyRegistry_ == address(0)) {
+        if (
+            fund_ == address(0) ||
+            asset_ == address(0) ||
+            owner_ == address(0) ||
+            strategyRegistry_ == address(0) ||
+            riskEngine_ == address(0)
+        ) {
             revert ZeroAddress();
         }
 
@@ -104,6 +110,10 @@ contract Manager is IManager, ReentrancyGuard {
         }
 
         return total;
+    }
+
+    function strategyImplementationOf(address instance) external view override returns (address) {
+        return _strategyImplementationOf[instance];
     }
 
     function strategyCount() external view override returns (uint256) {
@@ -157,7 +167,6 @@ contract Manager is IManager, ReentrancyGuard {
             allocationCarry[s] = raw % 10_000;
 
             if (s == lastActive) continue;
-
             if (amt == 0) continue;
 
             IStrategy(s).deposit(amt);
@@ -244,7 +253,8 @@ contract Manager is IManager, ReentrancyGuard {
             strategyWeight[inst] = w;
 
             _implUsed[impl] = true;
-            strategyImplementationOf[inst] = impl;
+
+            _strategyImplementationOf[inst] = impl;
 
             allocationCarry[inst] = 0;
 
@@ -289,7 +299,7 @@ contract Manager is IManager, ReentrancyGuard {
         strategyWeight[newStrategyInstance] = weightBps;
 
         _implUsed[strategyImplementation] = true;
-        strategyImplementationOf[newStrategyInstance] = strategyImplementation;
+        _strategyImplementationOf[newStrategyInstance] = strategyImplementation;
 
         allocationCarry[newStrategyInstance] = 0;
 
@@ -556,10 +566,10 @@ contract Manager is IManager, ReentrancyGuard {
 
         delete allocationCarry[strategyInstance];
 
-        address impl = strategyImplementationOf[strategyInstance];
+        address impl = _strategyImplementationOf[strategyInstance];
         if (impl != address(0)) {
             _implUsed[impl] = false;
-            delete strategyImplementationOf[strategyInstance];
+            delete _strategyImplementationOf[strategyInstance];
         }
 
         emit StrategyRemoved(strategyInstance, impl);
