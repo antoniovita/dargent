@@ -17,7 +17,6 @@ contract RiskEngine is IRiskEngine {
     uint32[] internal _tierThresholds;
     string public metadataURI;
 
-
     constructor(
         address strategyRegistry_,
         address governance_,
