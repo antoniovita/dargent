@@ -12,20 +12,30 @@ error InvalidThresholds();
 error NotApprovedStrategy(address implementation);
 
 contract RiskEngine is IRiskEngine {
-
     address public governance;
     address public strategyRegistry;
     uint32[] internal _tierThresholds;
+    string public metadataURI;
 
-    constructor(address strategyRegistry_, address governance_, uint32[] memory tierThresholds_) {
+
+    constructor(
+        address strategyRegistry_,
+        address governance_,
+        uint32[] memory tierThresholds_,
+        string memory metadataURI_
+    ) {
         if (strategyRegistry_ == address(0) || governance_ == address(0)) revert ZeroAddress();
         strategyRegistry = strategyRegistry_;
         governance = governance_;
+
+        metadataURI = metadataURI_;
+        emit MetadataURISet(metadataURI_);
+
         _setTierThresholds(tierThresholds_);
     }
 
     //modifier
-    modifier onlyGov() {
+    modifier onlyGovernance() {
         if (msg.sender != governance) revert NotGovernance();
         _;
     }
@@ -36,25 +46,35 @@ contract RiskEngine is IRiskEngine {
     }
 
     //governance
-    function setGovernance(address newGov) external onlyGov {
-        if (newGov == address(0)) revert ZeroAddress();
+    function transferGovernance(address newGovernance) external onlyGovernance {
+        if (newGovernance == address(0)) revert ZeroAddress();
         address old = governance;
-        governance = newGov;
-        emit GovernanceUpdated(old, newGov);
+        governance = newGovernance;
+        emit GovernanceUpdated(old, newGovernance);
     }
 
-    function setStrategyRegistry(address newReg) external onlyGov {
+    function setStrategyRegistry(address newReg) external onlyGovernance {
         if (newReg == address(0)) revert ZeroAddress();
         address old = strategyRegistry;
         strategyRegistry = newReg;
         emit StrategyRegistryUpdated(old, newReg);
     }
 
-    function setTierThresholds(uint32[] calldata newThresholds) external onlyGov {
+    function setTierThresholds(uint32[] calldata newThresholds) external onlyGovernance {
         _setTierThresholds(newThresholds);
     }
 
-    function computeRisk(address manager) external view override returns (uint8 riskTier, uint32 riskScore) {
+    function setMetadataURI(string calldata newURI) external onlyGovernance {
+        metadataURI = newURI;
+        emit MetadataURISet(newURI);
+    }
+
+    function computeRisk(address manager)
+        external
+        view
+        override
+        returns (uint8 riskTier, uint32 riskScore)
+    {
         if (manager == address(0)) revert ZeroAddress();
 
         IManager m = IManager(manager);
@@ -67,22 +87,29 @@ contract RiskEngine is IRiskEngine {
 
         uint256 sumW;
         uint256 weighted;
+
         for (uint256 i = 0; i < len; i++) {
             uint16 w = weightsBps[i];
             if (w == 0) continue;
+
             address impl = m.strategyImplementationOf(instances[i]);
+
+            if (impl == address(0)) revert ZeroAddress();
+
             if (!sReg.isApproved(impl)) revert NotApprovedStrategy(impl);
+
             sumW += w;
+
             uint32 rs = sReg.riskScore(impl);
             weighted += uint256(rs) * uint256(w);
         }
+
         if (sumW == 0) return (0, 0);
 
         uint256 avg = weighted / sumW;
         if (avg > type(uint32).max) avg = type(uint32).max;
 
         riskScore = uint32(avg);
-        
         riskTier = _tierForScore(riskScore);
     }
 
@@ -100,10 +127,12 @@ contract RiskEngine is IRiskEngine {
         for (uint256 i = 1; i < arr.length; i++) {
             if (arr[i] <= arr[i - 1]) revert InvalidThresholds();
         }
+
         delete _tierThresholds;
         for (uint256 i = 0; i < arr.length; i++) {
             _tierThresholds.push(arr[i]);
         }
+
         emit TierThresholdsUpdated(_tierThresholds);
     }
 }

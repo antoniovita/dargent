@@ -16,7 +16,7 @@ interface IProductFactory {
         uint16 perfFeeBps;
         address managerFeeRecipient;
         address[] strategyImplementations;
-        uint16[]  weightsBps;
+        uint16[] weightsBps;
     }
 
     // events
@@ -52,12 +52,14 @@ interface IProductFactory {
         address indexed newRiskEngine
     );
 
-    event FactoryOwnerUpdated(
-        address indexed oldOwner,
-        address indexed newOwner
+    event FactoryGovernanceUpdated(
+        address indexed oldGovernance,
+        address indexed newGovernance
     );
 
     // view
+    function governance() external view returns (address);
+
     function fundImplementation() external view returns (address);
     function managerImplementation() external view returns (address);
 
@@ -77,4 +79,24 @@ interface IProductFactory {
             address manager,
             address[] memory strategyInstances
         );
+
+    // governance
+    function setRegistries(
+        address productRegistry_,
+        address strategyRegistry_,
+        address assetRegistry_
+    ) external;
+
+    function setDefaults(
+        address feeCollector_,
+        address withdrawalQueue_
+    ) external;
+
+    function setRiskEngine(
+        address riskEngine_
+    ) external;
+
+    function transferGovernance(
+        address newGovernance
+    ) external;
 }

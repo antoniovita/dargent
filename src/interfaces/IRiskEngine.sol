@@ -2,10 +2,11 @@
 pragma solidity ^0.8.20;
 
 interface IRiskEngine {
-    // events
-    event GovernanceUpdated(address indexed oldGov, address indexed newGov);
+    //events
+    event GovernanceUpdated(address indexed oldGovernance, address indexed newGovernance);
     event StrategyRegistryUpdated(address indexed oldReg, address indexed newReg);
     event TierThresholdsUpdated(uint32[] newThresholds);
+    event MetadataURISet(string newURI);
 
 
     //view

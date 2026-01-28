@@ -13,7 +13,7 @@ import {IStrategyRegistry} from "./interfaces/registry/IStrategyRegistry.sol";
 import {IAssetRegistry} from "./interfaces/registry/IAssetRegistry.sol";
 
 // errors
-error NotOwner();
+error NotGovernance();
 error ZeroAddress();
 error InvalidWeights();
 error LengthMismatch();
@@ -27,7 +27,7 @@ error ZeroWeight(uint256 index);
 contract ProductFactory is IProductFactory {
     using Clones for address;
 
-    address public owner;
+    address public governance;
     address public immutable fundImplementation;
     address public immutable managerImplementation;
     address public productRegistry;
@@ -46,7 +46,7 @@ contract ProductFactory is IProductFactory {
         address feeCollector_,
         address withdrawalQueue_,
         address riskEngine_,
-        address owner_
+        address governance_
     ) {
         if (
             fundImpl == address(0) ||
@@ -57,7 +57,7 @@ contract ProductFactory is IProductFactory {
             feeCollector_ == address(0) ||
             withdrawalQueue_ == address(0) ||
             riskEngine_ == address(0) ||
-            owner_ == address(0)
+            governance_ == address(0)
         ) revert ZeroAddress();
 
         fundImplementation = fundImpl;
@@ -68,12 +68,12 @@ contract ProductFactory is IProductFactory {
         feeCollector = feeCollector_;
         withdrawalQueue = withdrawalQueue_;
         riskEngine = riskEngine_;
-        owner = owner_;
+        governance = governance_;
     }
 
     //modifiers
-    modifier isOwner() {
-        if (msg.sender != owner) revert NotOwner();
+    modifier isGovernance() {
+        if (msg.sender != governance) revert NotGovernance();
         _;
     }
 
@@ -98,7 +98,7 @@ contract ProductFactory is IProductFactory {
         if (len == 0) revert InvalidWeights();
 
         if (p.fundType == FundType.HOUSE) {
-            if (msg.sender != owner) revert NotOwner();
+            if (msg.sender != governance) revert NotGovernance();
         } else if (p.fundType != FundType.MANAGED) {
             revert InvalidFundType();
         }
@@ -125,7 +125,7 @@ contract ProductFactory is IProductFactory {
         manager = managerImplementation.clone();
         fund = fundImplementation.clone();
 
-        address productOwner = (p.fundType == FundType.HOUSE) ? owner : msg.sender;
+        address productOwner = (p.fundType == FundType.HOUSE) ? governance : msg.sender;
 
         IManagerInit(manager).initialize(
             fund,
@@ -184,7 +184,7 @@ contract ProductFactory is IProductFactory {
         address assetRegistry_
     )
         external
-        isOwner
+        isGovernance
         isValid(productRegistry_)
         isValid(strategyRegistry_)
         isValid(assetRegistry_)
@@ -198,7 +198,7 @@ contract ProductFactory is IProductFactory {
 
     function setDefaults(address feeCollector_, address withdrawalQueue_)
         external
-        isOwner
+        isGovernance
         isValid(feeCollector_)
         isValid(withdrawalQueue_)
     {
@@ -209,20 +209,20 @@ contract ProductFactory is IProductFactory {
 
     function setRiskEngine(address riskEngine_)
         external
-        isOwner
+        isGovernance
         isValid(riskEngine_)
     {
         riskEngine = riskEngine_;
         emit RiskEngineUpdated(riskEngine_);
     }
 
-    function transferOwnership(address newOwner)
+    function transferGovernance(address newGovernance)
         external
-        isOwner
-        isValid(newOwner)
+        isGovernance
+        isValid(newGovernance)
     {
-        address oldOwner = owner;
-        owner = newOwner;
-        emit FactoryOwnerUpdated(oldOwner, newOwner);
+        address oldGovernance = governance;
+        governance = newGovernance;
+        emit FactoryGovernanceUpdated(oldGovernance, newGovernance);
     }
 }
