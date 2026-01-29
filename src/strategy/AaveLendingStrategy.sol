@@ -24,7 +24,6 @@ contract AaveLendingStrategy is IStrategy, ReentrancyGuard {
     bool private _initialized;
     address public override asset;
     address public override manager;
-    bool public override isLiquid;
 
     IAavePool public immutable pool;
     IAaveProtocolDataProvider public immutable dataProvider;
@@ -135,7 +134,6 @@ contract AaveLendingStrategy is IStrategy, ReentrancyGuard {
 
         manager = manager_;
         asset = asset_;
-        isLiquid = true;
 
         (address aTokenAddr,,) = dataProvider.getReserveTokensAddresses(asset_);
         if (aTokenAddr == address(0)) revert ZeroAddress();

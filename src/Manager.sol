@@ -12,7 +12,7 @@ import {IStrategyRegistry} from "./interfaces/registry/IStrategyRegistry.sol";
 import {IRiskEngine} from "./interfaces/IRiskEngine.sol";
 import {IFund} from "./interfaces/IFund.sol";
 
-// errors
+//errors
 error NotOwner();
 error NotFund();
 error NotInitialized();
@@ -21,7 +21,6 @@ error ZeroAddress();
 error InvalidBps();
 error LengthMismatch();
 error InvalidWeights();
-error ZeroWeight(uint256 index);
 error StrategyNotActive(address implementation);
 error StrategyNotSupported(address implementation, address asset);
 error UnknownStrategy(address strategyInstance);
@@ -31,9 +30,21 @@ error StrategyRemoving(address strategyInstance);
 error CannotRedistribute();
 error CannotRemoveLastStrategy();
 error ActiveWeightZero(address strategyInstance);
+error WeightBelowMin(address strategyInstance, uint16 weightBps);
+error PendingChangeExists();
+error NoPendingChange();
+error PendingNotReady(uint256 readyAt);
+error PendingExpired(uint256 expiredAt);
+error DeltaTooLarge(address strategyInstance, uint16 currentBps, uint16 newBps, uint16 maxDeltaBps);
 
 contract Manager is IManager, ReentrancyGuard {
     using Clones for address;
+
+    //constants
+    uint16 internal constant MIN_WEIGHT_BPS = 100; // 1.00%
+    uint48 internal constant CHANGE_DELAY = 24 hours;
+    uint48 internal constant EPOCH = 24 hours;
+    uint16 internal constant MAX_DELTA_BPS_PER_EPOCH = 500; // 5.00%
 
     bool public initialized;
     address public fund;
@@ -50,6 +61,32 @@ contract Manager is IManager, ReentrancyGuard {
     mapping(address => bool) public isRemoving;
     mapping(address => uint16) public removingWeightBps;
     mapping(address => uint256) internal allocationCarry;
+    mapping(uint256 => bool) internal _epochExecuted;
+
+    function minWeightBps() external pure returns (uint16) { return MIN_WEIGHT_BPS; }
+    function changeDelay() external pure returns (uint48) { return CHANGE_DELAY; }
+    function epochLength() external pure returns (uint48) { return EPOCH; }
+    function maxDeltaBpsPerEpoch() external pure returns (uint16) { return MAX_DELTA_BPS_PER_EPOCH; }
+
+    struct PendingWeights {
+        uint48 eta;
+        uint48 expiresAt;
+        address[] strategies;
+        uint16[] weights;
+        bool exists;
+    }
+
+    struct PendingAdd {
+        uint48 eta;
+        uint48 expiresAt;
+        address implementation;
+        uint16 weightBps;
+        bool exists;
+    }
+
+    PendingWeights internal _pendingWeights;
+    PendingAdd internal _pendingAdd;
+
 
     //modifiers
     modifier onlyOwner() {
@@ -70,10 +107,10 @@ contract Manager is IManager, ReentrancyGuard {
     //init
     function initialize(
         address fund_,
+        address riskEngine_,
         address asset_,
         address owner_,
-        address strategyRegistry_,
-        address riskEngine_
+        address strategyRegistry_
     ) external {
         if (initialized) revert AlreadyInitialized();
         if (
@@ -141,10 +178,27 @@ contract Manager is IManager, ReentrancyGuard {
         }
     }
 
+    function pendingWeights()
+        external
+        view
+        returns (bool exists, uint256 eta, uint256 expiresAt, address[] memory strategies, uint16[] memory weights)
+    {
+        PendingWeights storage p = _pendingWeights;
+        return (p.exists, p.eta, p.expiresAt, p.strategies, p.weights);
+    }
+
+    function pendingAddStrategy()
+        external
+        view
+        returns (bool exists, uint256 eta, uint256 expiresAt, address implementation, uint16 weightBps)
+    {
+        PendingAdd storage p = _pendingAdd;
+        return (p.exists, p.eta, p.expiresAt, p.implementation, p.weightBps);
+    }
+
     //write - only fund
     function allocate(uint256 assets_) external override onlyInitialized onlyFund nonReentrant {
         _drainRemovingStrategies();
-
         if (assets_ == 0) return;
 
         (uint256 activeCount, uint256 lastActiveIndex) = _activeCountAndLastIndex();
@@ -187,16 +241,18 @@ contract Manager is IManager, ReentrancyGuard {
         returns (uint256 freed)
     {
         _drainRemovingStrategies();
-
         if (assets_ == 0) return 0;
 
         uint256 remaining = assets_;
         uint256 len = _strategies.length;
 
+        IStrategyRegistry sReg = IStrategyRegistry(strategyRegistry);
+
         for (uint256 i = 0; i < len; i++) {
             address s = _strategies[i];
             if (isRemoving[s]) continue;
-            if (!IStrategy(s).isLiquid()) continue;
+            address impl = _strategyImplementationOf[s];
+            if (!sReg.isLiquid(impl)) continue;
 
             uint256 got = IStrategy(s).withdraw(remaining, fund);
             freed += got;
@@ -208,7 +264,8 @@ contract Manager is IManager, ReentrancyGuard {
         for (uint256 i = 0; i < len; i++) {
             address s = _strategies[i];
             if (isRemoving[s]) continue;
-            if (IStrategy(s).isLiquid()) continue;
+            address impl = _strategyImplementationOf[s];
+            if (sReg.isLiquid(impl)) continue;
 
             uint256 got = IStrategy(s).withdraw(remaining, fund);
             freed += got;
@@ -216,6 +273,10 @@ contract Manager is IManager, ReentrancyGuard {
             if (freed >= assets_) return freed;
             remaining = assets_ - freed;
         }
+    }
+
+    function drainRemoving() external override onlyInitialized onlyFund nonReentrant {
+        _drainRemovingStrategies();
     }
 
     function addStrategyViaImplementations(address[] calldata implementations, uint16[] calldata weightsBps)
@@ -237,10 +298,9 @@ contract Manager is IManager, ReentrancyGuard {
             uint16 w = weightsBps[i];
 
             if (impl == address(0)) revert ZeroAddress();
-            if (w == 0 || w > 10_000) revert InvalidBps();
+            if (w < MIN_WEIGHT_BPS || w > 10_000) revert InvalidBps();
 
             _validateImplementation(impl);
-
             if (_implUsed[impl]) revert ImplementationAlreadyUsed(impl);
 
             address inst = impl.clone();
@@ -251,28 +311,49 @@ contract Manager is IManager, ReentrancyGuard {
             _strategies.push(inst);
             _isStrategy[inst] = true;
             strategyWeight[inst] = w;
-
             _implUsed[impl] = true;
-
             _strategyImplementationOf[inst] = impl;
-
             allocationCarry[inst] = 0;
 
             newStrategyInstances[i] = inst;
-
             emit StrategyAdded(impl, inst, w);
         }
 
         _validateWeightsSum();
+        _enforceMinWeights();
         _refreshRisk();
     }
 
-    function drainRemoving() external onlyInitialized onlyFund nonReentrant {
-        _drainRemovingStrategies();
+    function announceAddStrategyViaImplementation(address strategyImplementation, uint16 weightBps)
+        external
+        override
+        onlyInitialized
+        onlyOwner
+        nonReentrant
+    {
+        if (_pendingAdd.exists) revert PendingChangeExists();
+
+        if (strategyImplementation == address(0)) revert ZeroAddress();
+        if (weightBps < MIN_WEIGHT_BPS || weightBps > 10_000) revert InvalidBps();
+
+        _validateImplementation(strategyImplementation);
+        if (_implUsed[strategyImplementation]) revert ImplementationAlreadyUsed(strategyImplementation);
+
+        uint48 eta = uint48(block.timestamp + CHANGE_DELAY);
+        uint48 expiresAt = uint48(block.timestamp + CHANGE_DELAY + 3 days);
+
+        _pendingAdd = PendingAdd({
+            eta: eta,
+            expiresAt: expiresAt,
+            implementation: strategyImplementation,
+            weightBps: weightBps,
+            exists: true
+        });
+
+        emit StrategyAddAnnounced(strategyImplementation, weightBps, eta, expiresAt);
     }
 
-    //manager owner only
-    function addStrategyViaImplementation(address strategyImplementation, uint16 weightBps)
+    function executeAddStrategyViaImplementation()
         external
         override
         onlyInitialized
@@ -280,33 +361,123 @@ contract Manager is IManager, ReentrancyGuard {
         nonReentrant
         returns (address newStrategyInstance)
     {
-        if (strategyImplementation == address(0)) revert ZeroAddress();
-        if (weightBps == 0 || weightBps > 10_000) revert InvalidBps();
+        PendingAdd storage p = _pendingAdd;
+        if (!p.exists) revert NoPendingChange();
+        if (block.timestamp < p.eta) revert PendingNotReady(p.eta);
+        if (block.timestamp > p.expiresAt) revert PendingExpired(p.expiresAt);
 
-        _validateImplementation(strategyImplementation);
+        address impl = p.implementation;
+        uint16 w = p.weightBps;
 
-        if (_implUsed[strategyImplementation]) revert ImplementationAlreadyUsed(strategyImplementation);
+        delete _pendingAdd;
 
-        _makeRoomForNewWeight(weightBps);
+        _validateImplementation(impl);
+        if (_implUsed[impl]) revert ImplementationAlreadyUsed(impl);
 
-        newStrategyInstance = strategyImplementation.clone();
+        _makeRoomForNewWeight(w);
+
+        newStrategyInstance = impl.clone();
         IStrategy(newStrategyInstance).initialize(address(this), asset);
 
         if (_isStrategy[newStrategyInstance]) revert DuplicateStrategy(newStrategyInstance);
 
         _strategies.push(newStrategyInstance);
         _isStrategy[newStrategyInstance] = true;
-        strategyWeight[newStrategyInstance] = weightBps;
+        strategyWeight[newStrategyInstance] = w;
 
-        _implUsed[strategyImplementation] = true;
-        _strategyImplementationOf[newStrategyInstance] = strategyImplementation;
+        _implUsed[impl] = true;
+        _strategyImplementationOf[newStrategyInstance] = impl;
 
         allocationCarry[newStrategyInstance] = 0;
 
         _validateWeightsSum();
+        _enforceMinWeights();
         _refreshRisk();
 
-        emit StrategyAdded(strategyImplementation, newStrategyInstance, weightBps);
+        emit StrategyAdded(impl, newStrategyInstance, w);
+        emit StrategyAddExecuted(impl, newStrategyInstance, w);
+    }
+
+    function announceStrategyWeights(address[] calldata strategyInstances, uint16[] calldata weightsBps)
+        external
+        override
+        onlyInitialized
+        onlyOwner
+        nonReentrant
+    {
+        if (_pendingWeights.exists) revert PendingChangeExists();
+
+        uint256 len = strategyInstances.length;
+        if (len != weightsBps.length) revert LengthMismatch();
+        if (len == 0) revert InvalidWeights();
+
+        uint256 epoch = _currentEpoch();
+        if (_epochExecuted[epoch]) revert PendingChangeExists();
+
+        _validateWeightsProposal(strategyInstances, weightsBps);
+
+        _pendingWeights.strategies = new address[](len);
+        _pendingWeights.weights = new uint16[](len);
+        for (uint256 i = 0; i < len; i++) {
+            _pendingWeights.strategies[i] = strategyInstances[i];
+            _pendingWeights.weights[i] = weightsBps[i];
+        }
+
+        uint48 eta = uint48(block.timestamp + CHANGE_DELAY);
+        uint48 expiresAt = uint48(block.timestamp + CHANGE_DELAY + 3 days);
+
+        _pendingWeights.eta = eta;
+        _pendingWeights.expiresAt = expiresAt;
+        _pendingWeights.exists = true;
+
+        emit WeightsChangeAnnounced(epoch, eta, expiresAt);
+    }
+
+    function executeStrategyWeights() external override onlyInitialized onlyOwner nonReentrant {
+        PendingWeights storage p = _pendingWeights;
+        if (!p.exists) revert NoPendingChange();
+        if (block.timestamp < p.eta) revert PendingNotReady(p.eta);
+        if (block.timestamp > p.expiresAt) revert PendingExpired(p.expiresAt);
+
+        uint256 epoch = _currentEpoch();
+        _epochExecuted[epoch] = true;
+
+        uint256 len = p.strategies.length;
+        address[] memory ss = new address[](len);
+        uint16[] memory ws = new uint16[](len);
+
+        for (uint256 i = 0; i < len; i++) {
+            address s = p.strategies[i];
+            uint16 w = p.weights[i];
+
+            if (!_isStrategy[s]) revert UnknownStrategy(s);
+            if (isRemoving[s]) revert StrategyRemoving(s);
+            if (w < MIN_WEIGHT_BPS || w > 10_000) revert InvalidBps();
+
+            strategyWeight[s] = w;
+
+            ss[i] = s;
+            ws[i] = w;
+        }
+
+        _validateWeightsSum();
+        _enforceMinWeights();
+        _refreshRisk();
+
+        delete _pendingWeights;
+
+        emit WeightsChangeExecuted(epoch);
+        emit WeightsUpdated(ss, ws);
+    }
+
+    function cancelPendingWeights() external override onlyInitialized onlyOwner nonReentrant {
+        if (!_pendingWeights.exists) revert NoPendingChange();
+        delete _pendingWeights;
+    }
+
+    function cancelPendingAddStrategy() external override onlyInitialized onlyOwner nonReentrant {
+        if (!_pendingAdd.exists) revert NoPendingChange();
+        delete _pendingAdd;
     }
 
     function removeStrategyInstance(address strategyInstance)
@@ -319,7 +490,6 @@ contract Manager is IManager, ReentrancyGuard {
     {
         if (!_isStrategy[strategyInstance]) revert UnknownStrategy(strategyInstance);
         if (isRemoving[strategyInstance]) revert StrategyRemoving(strategyInstance);
-
         if (_activeStrategyCount() <= 1) revert CannotRemoveLastStrategy();
 
         uint16 removedW = strategyWeight[strategyInstance];
@@ -339,41 +509,13 @@ contract Manager is IManager, ReentrancyGuard {
         }
 
         _validateWeightsSum();
+        _enforceMinWeights();
         _refreshRisk();
-    }
-
-    function updateStrategyWeights(address[] calldata strategyInstances, uint16[] calldata weightsBps)
-        external
-        override
-        onlyInitialized
-        onlyOwner
-        nonReentrant
-    {
-        uint256 len = strategyInstances.length;
-        if (len != weightsBps.length) revert LengthMismatch();
-        if (len == 0) revert InvalidWeights();
-
-        for (uint256 i = 0; i < len; i++) {
-            address s = strategyInstances[i];
-            uint16 w = weightsBps[i];
-
-            if (!_isStrategy[s]) revert UnknownStrategy(s);
-            if (w == 0 || w > 10_000) revert InvalidBps();
-            if (isRemoving[s]) revert StrategyRemoving(s);
-
-            strategyWeight[s] = w;
-        }
-
-        _validateWeightsSum();
-        _refreshRisk();
-
-        emit WeightsUpdated(strategyInstances, weightsBps);
     }
 
     //internal
     function _validateImplementation(address impl) internal view {
         IStrategyRegistry sReg = IStrategyRegistry(strategyRegistry);
-
         if (!sReg.isActive(impl)) revert StrategyNotActive(impl);
         if (!sReg.supportsAsset(impl, asset)) revert StrategyNotSupported(impl, asset);
     }
@@ -381,13 +523,23 @@ contract Manager is IManager, ReentrancyGuard {
     function _validateWeightsSum() internal view {
         uint256 len = _strategies.length;
         uint256 sum;
-
         for (uint256 i = 0; i < len; i++) {
             if (isRemoving[_strategies[i]]) continue;
             sum += strategyWeight[_strategies[i]];
         }
-
         if (sum != 10_000) revert InvalidWeights();
+    }
+
+    function _enforceMinWeights() internal view {
+        uint256 len = _strategies.length;
+        for (uint256 i = 0; i < len; i++) {
+            address s = _strategies[i];
+            if (isRemoving[s]) continue;
+
+            uint16 w = strategyWeight[s];
+            if (w == 0) revert ActiveWeightZero(s);
+            if (w < MIN_WEIGHT_BPS) revert WeightBelowMin(s, w);
+        }
     }
 
     function _drainRemovingStrategies() internal {
@@ -447,11 +599,7 @@ contract Manager is IManager, ReentrancyGuard {
             strategyWeight[lastActive] = uint16(nw2);
         }
 
-        for (uint256 i = 0; i < len; i++) {
-            address s = _strategies[i];
-            if (isRemoving[s]) continue;
-            if (strategyWeight[s] == 0) revert ActiveWeightZero(s);
-        }
+        _enforceMinWeights();
     }
 
     function _makeRoomForNewWeight(uint16 newW) internal {
@@ -509,11 +657,7 @@ contract Manager is IManager, ReentrancyGuard {
             strategyWeight[lastActive] = uint16(nwLast);
         }
 
-        for (uint256 i = 0; i < len; i++) {
-            address s = _strategies[i];
-            if (isRemoving[s]) continue;
-            if (_isStrategy[s] && strategyWeight[s] == 0) revert ActiveWeightZero(s);
-        }
+        _enforceMinWeights();
     }
 
     function _activeStrategyCount() internal view returns (uint256 count) {
@@ -526,7 +670,6 @@ contract Manager is IManager, ReentrancyGuard {
         }
     }
 
-    //remainder allocation
     function _activeCountAndLastIndex() internal view returns (uint256 count, uint256 lastIndex) {
         uint256 len = _strategies.length;
         bool found;
@@ -539,6 +682,33 @@ contract Manager is IManager, ReentrancyGuard {
             found = true;
         }
         if (!found) lastIndex = 0;
+    }
+
+    function _currentEpoch() internal view returns (uint256) {
+        return block.timestamp / EPOCH;
+    }
+
+    function _validateWeightsProposal(address[] calldata strategyInstances, uint16[] calldata weightsBps) internal view {
+        uint256 len = strategyInstances.length;
+        uint256 sum;
+
+        for (uint256 i = 0; i < len; i++) {
+            address s = strategyInstances[i];
+            uint16 nw = weightsBps[i];
+
+            if (!_isStrategy[s]) revert UnknownStrategy(s);
+            if (isRemoving[s]) revert StrategyRemoving(s);
+
+            if (nw < MIN_WEIGHT_BPS || nw > 10_000) revert InvalidBps();
+
+            uint16 cw = strategyWeight[s];
+            uint16 diff = cw > nw ? (cw - nw) : (nw - cw);
+            if (diff > MAX_DELTA_BPS_PER_EPOCH) revert DeltaTooLarge(s, cw, nw, MAX_DELTA_BPS_PER_EPOCH);
+
+            sum += nw;
+        }
+
+        if (sum != 10_000) revert InvalidWeights();
     }
 
     function _refreshRisk() internal {

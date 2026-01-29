@@ -5,7 +5,6 @@ interface IStrategy {
     //view
     function asset() external view returns (address);
     function manager() external view returns (address);
-    function isLiquid() external view returns (bool);
     function totalAssets() external view returns (uint256); //always return in terms of the base asset
     function maxDeposit() external view returns (uint256);
     function maxWithdraw() external view returns (uint256);
