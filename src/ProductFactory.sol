@@ -82,59 +82,61 @@ contract ProductFactory is IProductFactory {
         _;
     }
 
-    //create
-    function createProduct(CreateParams calldata p)
-        external
-        returns (address fund, address manager, address[] memory strategyInstances)
+    //creation
+    function _validateCreateParams(CreateParams calldata p) internal view {
+    if (p.asset == address(0)) revert ZeroAddress();
+    if (p.managerFeeRecipient == address(0)) revert ZeroAddress();
+    if (p.bufferBps > 10_000) revert InvalidBps();
+    if (p.mgmtFeeBps > 10_000 || p.perfFeeBps > 10_000) revert InvalidBps();
+
+    uint256 len = p.strategyImplementations.length;
+    if (len != p.weightsBps.length) revert LengthMismatch();
+    if (len == 0) revert InvalidWeights();
+
+    if (p.fundType == FundType.HOUSE) {
+        if (msg.sender != governance) revert NotGovernance();
+    } else if (p.fundType != FundType.MANAGED) {
+        revert InvalidFundType();
+    }
+
+    uint256 sum;
+    for (uint256 i; i < len; i++) {
+        uint256 w = p.weightsBps[i];
+        if (w == 0) revert ZeroWeight(i);
+        sum += w;
+    }
+    if (sum != 10_000) revert InvalidWeights();
+
     {
-        if (p.asset == address(0)) revert ZeroAddress();
-        if (p.managerFeeRecipient == address(0)) revert ZeroAddress();
-
-        if (p.bufferBps > 10_000) revert InvalidBps();
-        if (p.mgmtFeeBps > 10_000 || p.perfFeeBps > 10_000) revert InvalidBps();
-
-        uint256 len = p.strategyImplementations.length;
-        if (len != p.weightsBps.length) revert LengthMismatch();
-        if (len == 0) revert InvalidWeights();
-
-        if (p.fundType == FundType.HOUSE) {
-            if (msg.sender != governance) revert NotGovernance();
-        } else if (p.fundType != FundType.MANAGED) {
-            revert InvalidFundType();
-        }
-
-        uint256 sum;
-        for (uint256 i = 0; i < len; i++) {
-            uint256 w = p.weightsBps[i];
-            if (w == 0) revert ZeroWeight(i);
-            sum += w;
-        }
-        if (sum != 10_000) revert InvalidWeights();
-
         IAssetRegistry aReg = IAssetRegistry(assetRegistry);
-        IStrategyRegistry sReg = IStrategyRegistry(strategyRegistry);
-
         if (!aReg.isApproved(p.asset)) revert AssetNotApproved(p.asset);
 
-        for (uint256 i = 0; i < len; i++) {
+        IStrategyRegistry sReg = IStrategyRegistry(strategyRegistry);
+        for (uint256 i; i < len; i++) {
             address impl = p.strategyImplementations[i];
             if (!sReg.isActive(impl)) revert StrategyNotActive(impl);
             if (!sReg.supportsAsset(impl, p.asset)) revert StrategyNotSupported(impl, p.asset);
         }
+    }
+}
 
-        manager = managerImplementation.clone();
-        fund = fundImplementation.clone();
-
-        address productOwner = (p.fundType == FundType.HOUSE) ? governance : msg.sender;
-
+    function _initializeManager(
+        address manager,
+        address fund,
+        CreateParams calldata p,
+        address productOwner
+    ) internal {
         IManagerInit(manager).initialize(
             fund,
             riskEngine,
             p.asset,
             productOwner,
-            strategyRegistry
+            strategyRegistry,
+            address(this)
         );
+    }
 
+    function _initializeFund(address fund, address manager, CreateParams calldata p) internal {
         IFundInit(fund).initialize(
             p.asset,
             manager,
@@ -148,14 +150,26 @@ contract ProductFactory is IProductFactory {
             feeCollector,
             withdrawalQueue
         );
+    }
 
+    function _addStrategiesAndEmit(address manager, CreateParams calldata p)
+        internal
+        returns (address[] memory strategyInstances)
+    {
         strategyInstances = IManager(manager).addStrategyViaImplementations(
             p.strategyImplementations,
             p.weightsBps
         );
 
         emit ProductAllocationConfigured(manager, p.strategyImplementations, p.weightsBps);
+    }
 
+    function _registerAndEmit(
+        address fund,
+        address manager,
+        CreateParams calldata p,
+        address productOwner
+    ) internal {
         IProductRegistry(productRegistry).registerProduct(
             fund,
             IProductRegistry.FundType(uint8(p.fundType)),
@@ -175,6 +189,25 @@ contract ProductFactory is IProductFactory {
             feeCollector,
             withdrawalQueue
         );
+    }
+
+    function createProduct(CreateParams calldata p)
+        external
+        returns (address fund, address manager, address[] memory strategyInstances)
+    {
+        _validateCreateParams(p);
+
+        address productOwner = (p.fundType == FundType.HOUSE) ? governance : msg.sender;
+
+        manager = managerImplementation.clone();
+        fund = fundImplementation.clone();
+
+        _initializeManager(manager, fund, p, productOwner);
+        _initializeFund(fund, manager, p);
+
+        strategyInstances = _addStrategiesAndEmit(manager, p);
+
+        _registerAndEmit(fund, manager, p, productOwner);
     }
 
     //governance

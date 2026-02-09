@@ -9,7 +9,7 @@ import {Manager} from "../src/Manager.sol";
 import {StrategyMockNonLiquid} from "./mocks/StrategyMockNonLiquid.sol";
 
 contract E2ETest is BaseTest {
-    function deposit_allocate_withdraw_process_claim() external {
+    function test_deposit_allocate_withdraw_process_claim() external {
         address[] memory impls = new address[](2);
         impls[0] = address(stratImplLiquid);
         impls[1] = address(stratImplNonLiquid);

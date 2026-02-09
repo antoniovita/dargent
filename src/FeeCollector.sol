@@ -125,7 +125,6 @@ contract FeeCollector is IFeeCollector, ReentrancyGuard {
         _fundFeeState[fund].highWaterMark = newHighWaterMark;
     }
 
-    //internal
     function _previewAccrue(address fund, uint256 nowTs)
         internal
         view
@@ -136,50 +135,65 @@ contract FeeCollector is IFeeCollector, ReentrancyGuard {
 
         FundFeeState memory st = _fundFeeState[fund];
         uint64 last = st.lastAccrual;
-
         if (last == 0) return (0, 0, 0);
 
         IFund.FeeConfig memory fc = IFund(fund).feeConfig();
-        uint16 mgmtFeeBps = fc.mgmtFeeBps;
-        uint16 perfFeeBps = fc.perfFeeBps;
 
-        //management fee
+        uint256 mgmtFeeSharesTotal = _calcMgmtFeeSharesTotal(supply, fc.mgmtFeeBps, last, nowTs);
+        uint256 perfFeeSharesTotal = _calcPerfFeeSharesTotal(fund, supply, fc.perfFeeBps, uint256(st.highWaterMark));
+
+        (protocolFeeShares, managerFeeShares) = _splitFees(mgmtFeeSharesTotal, perfFeeSharesTotal);
+
+        totalFeeShares = protocolFeeShares + managerFeeShares;
+    }
+
+    function _calcMgmtFeeSharesTotal(
+        uint256 supply,
+        uint16 mgmtFeeBps,
+        uint64 last,
+        uint256 nowTs
+    ) internal pure returns (uint256) {
+        if (mgmtFeeBps == 0) return 0;
         uint256 elapsed = nowTs > uint256(last) ? (nowTs - uint256(last)) : 0;
-        uint256 mgmtFeeSharesTotal = 0;
-        if (elapsed > 0 && mgmtFeeBps > 0) {
-            mgmtFeeSharesTotal =
-                (supply * uint256(mgmtFeeBps) * elapsed) /
-                (10_000 * YEAR);
-        }
+        if (elapsed == 0) return 0;
+        return (supply * uint256(mgmtFeeBps) * elapsed) / (10_000 * YEAR);
+    }
 
-        //perfomance fee
-        uint256 perfFeeSharesTotal = 0;
-        if (perfFeeBps > 0) {
-            uint256 pps = _pricePerShareWad(fund);
-            uint256 hwm = uint256(st.highWaterMark);
-            if (pps > hwm && hwm > 0) {
-                uint256 profitPerShare = pps - hwm;
-                uint256 profitAssets = (profitPerShare * supply) / WAD;
-                uint256 feeAssets = (profitAssets * uint256(perfFeeBps)) / 10_000;
-                if (feeAssets > 0) {
-                    perfFeeSharesTotal = (feeAssets * WAD) / pps;
-                }
-            }
-        }
+    function _calcPerfFeeSharesTotal(
+        address fund,
+        uint256 supply,
+        uint16 perfFeeBps,
+        uint256 hwm
+    ) internal view returns (uint256) {
+        if (perfFeeBps == 0) return 0;
 
-        // split protocol and manager
+        uint256 pps = _pricePerShareWad(fund);
+        if (pps <= hwm || hwm == 0) return 0;
+
+        uint256 profitPerShare = pps - hwm;
+        uint256 profitAssets = (profitPerShare * supply) / WAD;
+        uint256 feeAssets = (profitAssets * uint256(perfFeeBps)) / 10_000;
+        if (feeAssets == 0) return 0;
+
+        return (feeAssets * WAD) / pps;
+    }
+
+    function _splitFees(uint256 mgmtFeeSharesTotal, uint256 perfFeeSharesTotal)
+        internal
+        view
+        returns (uint256 protocolFeeShares, uint256 managerFeeShares)
+    {
         ProtocolFeeConfig memory pc = _protocolFeeConfig;
 
         uint256 protocolMgmt = (mgmtFeeSharesTotal * uint256(pc.protocolMgmtTakeBps)) / 10_000;
-        uint256 managerMgmt = mgmtFeeSharesTotal - protocolMgmt;
-
         uint256 protocolPerf = (perfFeeSharesTotal * uint256(pc.protocolPerfTakeBps)) / 10_000;
-        uint256 managerPerf = perfFeeSharesTotal - protocolPerf;
 
         protocolFeeShares = protocolMgmt + protocolPerf;
-        managerFeeShares = managerMgmt + managerPerf;
-        totalFeeShares = protocolFeeShares + managerFeeShares;
+        managerFeeShares =
+            (mgmtFeeSharesTotal - protocolMgmt) +
+            (perfFeeSharesTotal - protocolPerf);
     }
+
 
     function _pricePerShareWad(address fund) internal view returns (uint256) {
         uint256 supply = IERC20(fund).totalSupply();

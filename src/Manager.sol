@@ -49,6 +49,7 @@ contract Manager is IManager, ReentrancyGuard {
     bool public initialized;
     address public fund;
     address public asset;
+    address public factory;
     address public strategyRegistry;
     address public owner;
     address public riskEngine;
@@ -94,6 +95,11 @@ contract Manager is IManager, ReentrancyGuard {
         _;
     }
 
+    modifier onlyFactory() {
+        if (msg.sender != factory) revert NotOwner();
+        _;
+    }
+
     modifier onlyInitialized() {
         if (!initialized) revert NotInitialized();
         _;
@@ -110,11 +116,13 @@ contract Manager is IManager, ReentrancyGuard {
         address riskEngine_,
         address asset_,
         address owner_,
-        address strategyRegistry_
+        address strategyRegistry_,
+        address factory_
     ) external {
         if (initialized) revert AlreadyInitialized();
         if (
             fund_ == address(0) ||
+            factory_ == address(0) ||
             asset_ == address(0) ||
             owner_ == address(0) ||
             strategyRegistry_ == address(0) ||
@@ -128,6 +136,7 @@ contract Manager is IManager, ReentrancyGuard {
         owner = owner_;
         strategyRegistry = strategyRegistry_;
         riskEngine = riskEngine_;
+        factory = factory_;
 
         initialized = true;
     }
@@ -283,7 +292,7 @@ contract Manager is IManager, ReentrancyGuard {
         external
         override
         onlyInitialized
-        onlyOwner
+        onlyFactory
         nonReentrant
         returns (address[] memory newStrategyInstances)
     {

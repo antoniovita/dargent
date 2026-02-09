@@ -7,6 +7,7 @@ interface IManagerInit {
         address riskEngine_,
         address asset_,
         address owner_,
-        address strategyRegistry_
+        address strategyRegistry_,
+        address factory_
     ) external;
 }
