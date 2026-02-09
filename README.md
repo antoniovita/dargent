@@ -108,3 +108,6 @@ forge test -vv
 - Always validate approvals and status in registries before creating products.
 - `bufferBps` controls immediate liquidity; high values reduce allocation.
 - `riskScore` and `riskTier` are governance-controlled and must reflect real strategy risk.
+
+
+forge script script/DeployAnvil.s.sol:DeployAnvil --rpc-url $RPC_URL --broadcast -vv

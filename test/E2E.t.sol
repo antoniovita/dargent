@@ -24,9 +24,9 @@ contract E2ETest is BaseTest {
             fundType: IProductFactory.FundType.MANAGED,
             asset: address(asset),
             fundMetadataURI: "ipfs://product-meta",
-            bufferBps: 10_000,
-            mgmtFeeBps: 0,
-            perfFeeBps: 0,
+            bufferBps: 1000,
+            mgmtFeeBps: 200,
+            perfFeeBps: 1000,
             managerFeeRecipient: owner,
             strategyImplementations: impls,
             weightsBps: weights
