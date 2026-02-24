@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 interface IManagerInit {
     function initialize(
         address fund_,
+        address factory_,
         address riskEngine_,
         address asset_,
         address strategyRegistry_,

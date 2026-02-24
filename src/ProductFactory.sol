@@ -127,6 +127,7 @@ contract ProductFactory is IProductFactory {
     ) internal {
         IManagerInit(manager).initialize(
             fund,
+            address(this),
             riskEngine,
             p.asset,
             strategyRegistry,

@@ -13,6 +13,7 @@ import {IRiskEngine} from "./interfaces/IRiskEngine.sol";
 import {IFund} from "./interfaces/IFund.sol";
 
 error NotFund();
+error NotFactory();
 error NotInitialized();
 error AlreadyInitialized();
 error ZeroAddress();
@@ -36,6 +37,8 @@ contract Manager is IManager, ReentrancyGuard {
 
     address public fund;
     address public asset;
+    address public factory;
+    
     address public strategyRegistry;
     address public riskEngine;
 
@@ -63,6 +66,7 @@ contract Manager is IManager, ReentrancyGuard {
 
     function initialize(
         address fund_,
+        address factory_,
         address riskEngine_,
         address asset_,
         address strategyRegistry_,
@@ -72,16 +76,19 @@ contract Manager is IManager, ReentrancyGuard {
         if (initialized) revert AlreadyInitialized();
         if (
             fund_ == address(0) ||
+            factory_ == address(0) ||
             asset_ == address(0) ||
             strategyRegistry_ == address(0) ||
             riskEngine_ == address(0)
         ) revert ZeroAddress();
+        if (msg.sender != factory_) revert NotFactory();
 
         uint256 len = implementations.length;
         if (len == 0) revert InvalidWeights();
         if (len != weightsBps.length) revert LengthMismatch();
 
         fund = fund_;
+        factory = factory_;
         asset = asset_;
         strategyRegistry = strategyRegistry_;
         riskEngine = riskEngine_;
