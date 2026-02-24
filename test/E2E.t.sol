@@ -10,7 +10,7 @@ import {Manager} from "../src/Manager.sol";
 import {StrategyMockNonLiquid} from "./mocks/StrategyMockNonLiquid.sol";
 
 contract E2ETest is BaseTest {
-    function test_productInfo_mirrorsFundRiskAndSharePrice() external {
+    function test_getProductInfo_returnsRegisteredMetadata() external {
         address[] memory impls = new address[](2);
         impls[0] = address(stratImplLiquid);
         impls[1] = address(stratImplNonLiquid);
@@ -31,15 +31,18 @@ contract E2ETest is BaseTest {
             strategyImplementations: impls,
             weightsBps: weights
         });
-        (address fundAddr, , ) = factory.createProduct(params);
+        (address fundAddr, address managerAddr, ) = factory.createProduct(params);
         vm.stopPrank();
 
-        Fund fund = Fund(fundAddr);
         IProductRegistry.ProductInfo memory info = productRegistry.getProductInfo(fundAddr);
 
-        assertEq(info.sharePrice, fund.convertToAssets(1e18));
-        assertEq(info.riskTier, fund.riskTier());
-        assertEq(info.riskScore, fund.riskScore());
+        assertEq(uint8(info.status), uint8(IProductRegistry.Status.ACTIVE));
+        assertEq(uint8(info.fundType), uint8(IProductRegistry.FundType.MANAGED));
+        assertEq(info.manager, managerAddr);
+        assertEq(info.asset, address(asset));
+        assertEq(info.productOwner, owner);
+        assertEq(info.metadataURI, "ipfs://product-meta");
+        assertGt(info.createdAt, 0);
     }
 
     function test_deposit_allocate_withdraw_process_claim() external {

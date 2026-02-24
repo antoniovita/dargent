@@ -123,16 +123,15 @@ contract ProductFactory is IProductFactory {
     function _initializeManager(
         address manager,
         address fund,
-        CreateParams calldata p,
-        address productOwner
+        CreateParams calldata p
     ) internal {
         IManagerInit(manager).initialize(
             fund,
             riskEngine,
             p.asset,
-            productOwner,
             strategyRegistry,
-            address(this)
+            p.strategyImplementations,
+            p.weightsBps
         );
     }
 
@@ -152,16 +151,16 @@ contract ProductFactory is IProductFactory {
         );
     }
 
-    function _addStrategiesAndEmit(address manager, CreateParams calldata p)
+    function _strategyInstances(address manager)
         internal
+        view
         returns (address[] memory strategyInstances)
     {
-        strategyInstances = IManager(manager).addStrategyViaImplementations(
-            p.strategyImplementations,
-            p.weightsBps
-        );
-
-        emit ProductAllocationConfigured(manager, p.strategyImplementations, p.weightsBps);
+        uint256 len = IManager(manager).strategyCount();
+        strategyInstances = new address[](len);
+        for (uint256 i = 0; i < len; i++) {
+            strategyInstances[i] = IManager(manager).strategyAt(i);
+        }
     }
 
     function _registerAndEmit(
@@ -202,10 +201,11 @@ contract ProductFactory is IProductFactory {
         manager = managerImplementation.clone();
         fund = fundImplementation.clone();
 
-        _initializeManager(manager, fund, p, productOwner);
         _initializeFund(fund, manager, p);
+        _initializeManager(manager, fund, p);
 
-        strategyInstances = _addStrategiesAndEmit(manager, p);
+        strategyInstances = _strategyInstances(manager);
+        emit ProductAllocationConfigured(manager, p.strategyImplementations, p.weightsBps);
 
         _registerAndEmit(fund, manager, p, productOwner);
     }

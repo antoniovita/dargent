@@ -45,6 +45,11 @@ contract ProductRegistry is IProductRegistry {
         governance = governance_;
     }
 
+    function getProductInfo(address fund) external view override returns (ProductInfo memory) {
+        if (!isProduct(fund)) revert ProductNotRegistered(fund);
+        return _products[fund];
+    }
+
     function isProduct(address fund) public view override returns (bool) {
         return _products[fund].status != Status.NONE;
     }

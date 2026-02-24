@@ -43,6 +43,7 @@ interface IProductRegistry {
     event FactoryAllowedSet(address indexed factory, bool allowed);
 
     //view
+    function getProductInfo(address fund) external view returns (ProductInfo memory);
     function isProduct(address fund) external view returns (bool);
     function isActive(address fund) external view returns (bool);
     function status(address fund) external view returns (Status);

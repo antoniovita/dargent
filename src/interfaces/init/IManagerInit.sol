@@ -6,8 +6,8 @@ interface IManagerInit {
         address fund_,
         address riskEngine_,
         address asset_,
-        address owner_,
         address strategyRegistry_,
-        address factory_
+        address[] calldata implementations,
+        uint16[] calldata weightsBps
     ) external;
 }
