@@ -4,11 +4,44 @@ pragma solidity ^0.8.20;
 import {BaseTest} from "./BaseTest.t.sol";
 
 import {IProductFactory} from "../src/interfaces/IProductFactory.sol";
+import {IProductRegistry} from "../src/interfaces/registry/IProductRegistry.sol";
 import {Fund} from "../src/Fund.sol";
 import {Manager} from "../src/Manager.sol";
 import {StrategyMockNonLiquid} from "./mocks/StrategyMockNonLiquid.sol";
 
 contract E2ETest is BaseTest {
+    function test_productInfo_mirrorsFundRiskAndSharePrice() external {
+        address[] memory impls = new address[](2);
+        impls[0] = address(stratImplLiquid);
+        impls[1] = address(stratImplNonLiquid);
+
+        uint16[] memory weights = new uint16[](2);
+        weights[0] = 7_000;
+        weights[1] = 3_000;
+
+        vm.startPrank(owner);
+        IProductFactory.CreateParams memory params = IProductFactory.CreateParams({
+            fundType: IProductFactory.FundType.MANAGED,
+            asset: address(asset),
+            fundMetadataURI: "ipfs://product-meta",
+            bufferBps: 1000,
+            mgmtFeeBps: 200,
+            perfFeeBps: 1000,
+            managerFeeRecipient: owner,
+            strategyImplementations: impls,
+            weightsBps: weights
+        });
+        (address fundAddr, , ) = factory.createProduct(params);
+        vm.stopPrank();
+
+        Fund fund = Fund(fundAddr);
+        IProductRegistry.ProductInfo memory info = productRegistry.getProductInfo(fundAddr);
+
+        assertEq(info.sharePrice, fund.convertToAssets(1e18));
+        assertEq(info.riskTier, fund.riskTier());
+        assertEq(info.riskScore, fund.riskScore());
+    }
+
     function test_deposit_allocate_withdraw_process_claim() external {
         address[] memory impls = new address[](2);
         impls[0] = address(stratImplLiquid);

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {IProductRegistry} from "../interfaces/registry/IProductRegistry.sol";
+import {IFund} from "../interfaces/IFund.sol";
 
 //errors
 error NotGovernance();
@@ -42,11 +43,6 @@ contract ProductRegistry is IProductRegistry {
     constructor(address governance_) {
         if (governance_ == address(0)) revert ZeroAddress();
         governance = governance_;
-    }
-
-    //view
-    function getProductInfo(address fund) external view override returns (ProductInfo memory) {
-        return _products[fund];
     }
 
     function isProduct(address fund) public view override returns (bool) {
@@ -150,6 +146,10 @@ contract ProductRegistry is IProductRegistry {
 
         if (_fundByManager[manager] != address(0)) revert ManagerAlreadyMapped(manager);
 
+        uint256 sharePrice_ = IFund(fund).convertToAssets(1e18);
+        uint8 riskTier_ = IFund(fund).riskTier();
+        uint32 riskScore_ = IFund(fund).riskScore();
+
         _products[fund] = ProductInfo({
             status: Status.ACTIVE,
             fundType: fundType_,
@@ -165,7 +165,17 @@ contract ProductRegistry is IProductRegistry {
         _fundsByOwner[productOwner].push(fund);
         _ownerFundIndexPlus1[productOwner][fund] = _fundsByOwner[productOwner].length;
 
-        emit ProductRegistered(fund, manager, asset, productOwner, fundType_, metadataURI_);
+        emit ProductRegistered(
+            fund,
+            manager,
+            asset,
+            productOwner,
+            fundType_,
+            metadataURI_,
+            sharePrice_,
+            riskTier_,
+            riskScore_
+        );
     }
 
     //governance

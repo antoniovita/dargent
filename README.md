@@ -110,4 +110,4 @@ forge test -vv
 - `riskScore` and `riskTier` are governance-controlled and must reflect real strategy risk.
 
 
-forge script script/DeployAnvil.s.sol:DeployAnvil --rpc-url $RPC_URL --broadcast -vv
+forge script script/DeployAnvil.s.sol:DeployAnvil --rpc-url http://127.0.0.1:8545 --broadcast -vv

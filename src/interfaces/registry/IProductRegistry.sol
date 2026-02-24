@@ -31,15 +31,18 @@ interface IProductRegistry {
         address indexed asset,
         address productOwner,
         FundType fundType,
-        string metadataURI
+        string metadataURI,
+        uint256 sharePrice,
+        uint8 riskTier,
+        uint32 riskScore
     );
+    
     event ProductStatusSet(address indexed fund, Status oldStatus, Status newStatus);
     event ProductMetadataURISet(address indexed fund, string newURI);
     event OwnerURISet(address indexed productOwner, string newURI);
     event FactoryAllowedSet(address indexed factory, bool allowed);
 
     //view
-    function getProductInfo(address fund) external view returns (ProductInfo memory);
     function isProduct(address fund) external view returns (bool);
     function isActive(address fund) external view returns (bool);
     function status(address fund) external view returns (Status);
