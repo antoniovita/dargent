@@ -2,10 +2,6 @@
 pragma solidity ^0.8.20;
 
 interface IFund {
-    enum FundType {
-        HOUSE,
-        MANAGED
-    }
 
     struct FeeConfig {
         uint16 mgmtFeeBps;
@@ -16,7 +12,6 @@ interface IFund {
     //view
     function asset() external view returns (address);
     function manager() external view returns (address);
-    function fundType() external view returns (FundType);
     function bufferBps() external view returns (uint16);
     function totalAssets() external view returns (uint256);
     function riskTier() external view returns (uint8);

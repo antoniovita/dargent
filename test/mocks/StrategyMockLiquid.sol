@@ -27,6 +27,10 @@ contract StrategyMockLiquid is IStrategy {
         _initialized = true;
     }
 
+    function setAum(uint256 newAum) external onlyInitialized {
+        aum = newAum;
+    }
+
     function totalAssets() external view override onlyInitialized returns (uint256) {
         return aum;
     }

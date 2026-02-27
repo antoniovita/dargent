@@ -26,7 +26,6 @@ contract Fund is IFund, ERC20, ReentrancyGuard {
     bool public initialized;
     address public asset;
     address public manager;
-    FundType public fundType;
     uint16 public bufferBps;
     FeeConfig private _feeConfig;
     address public withdrawalQueue;
@@ -40,7 +39,6 @@ contract Fund is IFund, ERC20, ReentrancyGuard {
     function initialize(
         address asset_,
         address manager_,
-        FundType fundType_,
         uint16 bufferBps_,
         FeeConfig calldata feeConfig_,
         address feeCollector_,
@@ -61,7 +59,6 @@ contract Fund is IFund, ERC20, ReentrancyGuard {
 
         asset = asset_;
         manager = manager_;
-        fundType = fundType_;
         bufferBps = bufferBps_;
 
         _feeConfig = FeeConfig({

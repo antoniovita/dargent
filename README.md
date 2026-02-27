@@ -31,7 +31,7 @@ File: `src/Manager.sol`
 
 ### StrategyRegistry / AssetRegistry / ProductRegistry
 - Governance registries for approving assets and strategies.
-- `StrategyRegistry` stores `riskTier`, `riskScore`, and `isLiquid` per implementation.
+- `StrategyRegistry` stores `riskScore` and `isLiquid` per implementation.
 - `AssetRegistry` stores decimals, status, and metadata.
 - `ProductRegistry` registers Fund/Manager created by the factory.
 
@@ -107,5 +107,5 @@ forge test -vv
 ## Security considerations
 - Always validate approvals and status in registries before creating products.
 - `bufferBps` controls immediate liquidity; high values reduce allocation.
-- `riskScore` and `riskTier` are governance-controlled and must reflect real strategy risk.
+- `riskScore` is governance-controlled and must reflect real strategy risk; product `riskTier` is derived by the `RiskEngine`.
 - forge script script/DeployAnvil.s.sol:DeployAnvil --rpc-url http://127.0.0.1:8545 --broadcast -vv

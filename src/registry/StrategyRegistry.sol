@@ -9,8 +9,6 @@ error ZeroAddress();
 error StrategyAlreadyApproved(address implementation);
 error StrategyNotApproved(address implementation);
 error InvalidStatus();
-error InvalidRiskTier();
-error InvalidRiskScore();
 
 contract StrategyRegistry is IStrategyRegistry {
     address public governance;
@@ -43,9 +41,6 @@ contract StrategyRegistry is IStrategyRegistry {
         return _strategies[implementation].status;
     }
 
-    function riskTier(address implementation) external view override returns (uint8) {
-        return _strategies[implementation].riskTier;
-    }
 
     function riskScore(address implementation) external view override returns (uint32) {
         return _strategies[implementation].riskScore;
@@ -88,10 +83,8 @@ contract StrategyRegistry is IStrategyRegistry {
         if (info.status != Status.ACTIVE && info.status != Status.INACTIVE && info.status != Status.DEPRECATED) {
             revert InvalidStatus();
         }
-        if (info.riskTier == 0) revert InvalidRiskTier();
         _strategies[implementation] = StrategyInfo({
             status: info.status,
-            riskTier: info.riskTier,
             riskScore: info.riskScore,
             isLiquid: info.isLiquid,
             metadataURI: info.metadataURI,
@@ -100,7 +93,7 @@ contract StrategyRegistry is IStrategyRegistry {
 
         emit StrategyApproved(implementation, info.approvedAt);
         emit StrategyStatusSet(implementation, Status.NONE, info.status);
-        emit StrategyRiskSet(implementation, info.riskTier, info.riskScore, info.isLiquid);
+        emit StrategyRiskSet(implementation, info.riskScore, info.isLiquid);
         if (bytes(info.metadataURI).length != 0) emit StrategyMetadataURISet(implementation, info.metadataURI);
     }
 
@@ -122,20 +115,18 @@ contract StrategyRegistry is IStrategyRegistry {
         emit StrategyStatusSet(implementation, old, newStatus);
     }
 
-    function setRisk(address implementation, uint8 newRiskTier, uint32 newRiskScore, bool newIsLiquid)
+    function setRisk(address implementation, uint32 newRiskScore, bool newIsLiquid)
         external
         override
         onlyGovernance
         nonZero(implementation)
     {
         if (!isApproved(implementation)) revert StrategyNotApproved(implementation);
-        if (newRiskTier == 0) revert InvalidRiskTier();
 
-        _strategies[implementation].riskTier = newRiskTier;
         _strategies[implementation].riskScore = newRiskScore;
         _strategies[implementation].isLiquid = newIsLiquid;
 
-        emit StrategyRiskSet(implementation, newRiskTier, newRiskScore, newIsLiquid);
+        emit StrategyRiskSet(implementation, newRiskScore, newIsLiquid);
     }
 
     function setMetadataURI(address implementation, string calldata newURI)

@@ -139,7 +139,6 @@ contract DeployAnvil is Script {
         // Strategy approve (liquid)
         IStrategyRegistry.StrategyInfo memory infoLiquid = IStrategyRegistry.StrategyInfo({
             status: IStrategyRegistry.Status.ACTIVE,
-            riskTier: 2,
             riskScore: 450,
             isLiquid: true,
             metadataURI: "ipfs://...",
@@ -150,7 +149,6 @@ contract DeployAnvil is Script {
         // Strategy approve (non-liquid)
         IStrategyRegistry.StrategyInfo memory infoNotLiquid = IStrategyRegistry.StrategyInfo({
             status: IStrategyRegistry.Status.ACTIVE,
-            riskTier: 4,
             riskScore: 450,
             isLiquid: false,
             metadataURI: "ipfs://...",

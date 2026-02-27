@@ -24,6 +24,10 @@ contract StrategyMockNonLiquid is IStrategy {
         unlocked = v;
     }
 
+    function setAum(uint256 newAum) external onlyInitialized {
+        aum = newAum;
+    }
+
     function initialize(address manager_, address asset_) external override {
         require(!_initialized, "ALREADY_INITIALIZED");
         require(manager_ != address(0) && asset_ != address(0), "ZERO_ADDRESS");

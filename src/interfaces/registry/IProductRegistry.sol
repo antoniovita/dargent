@@ -9,14 +9,8 @@ interface IProductRegistry {
         DEPRECATED
     }
 
-    enum FundType {
-        HOUSE,
-        MANAGED
-    }
-
     struct ProductInfo {
         Status status;
-        FundType fundType;
         address manager;
         address asset;
         address productOwner;
@@ -30,7 +24,6 @@ interface IProductRegistry {
         address indexed manager,
         address indexed asset,
         address productOwner,
-        FundType fundType,
         string metadataURI,
         uint256 sharePrice,
         uint8 riskTier,
@@ -47,7 +40,6 @@ interface IProductRegistry {
     function isProduct(address fund) external view returns (bool);
     function isActive(address fund) external view returns (bool);
     function status(address fund) external view returns (Status);
-    function fundType(address fund) external view returns (FundType);
     function managerOf(address fund) external view returns (address);
     function assetOf(address fund) external view returns (address);
     function ownerOf(address fund) external view returns (address);
@@ -63,7 +55,6 @@ interface IProductRegistry {
     //write
     function registerProduct(
         address fund,
-        FundType fundType_,
         address manager,
         address asset,
         address productOwner,

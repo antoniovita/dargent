@@ -2,13 +2,8 @@
 pragma solidity ^0.8.20;
 
 interface IProductFactory {
-    enum FundType {
-        HOUSE,
-        MANAGED
-    }
 
     struct CreateParams {
-        FundType fundType;
         address asset;
         string fundMetadataURI;
         uint16 bufferBps;
@@ -24,7 +19,6 @@ interface IProductFactory {
         address indexed fund,
         address indexed manager,
         address indexed creator,
-        uint8 fundType,
         address asset,
         address productOwner,
         address feeCollector,
@@ -51,6 +45,19 @@ interface IProductFactory {
     event RiskEngineUpdated(
         address indexed newRiskEngine
     );
+    
+    event DefaultTiltParamsUpdated(
+        uint16 maxTiltBps,
+        uint16 maxStepBps,
+        uint64 tiltCooldown
+    );
+    
+    event DefaultRebalancePolicyUpdated(
+        uint16 defaultBand,
+        uint16 minBand,
+        uint16 maxBand,
+        uint64 cooldown
+    );
 
     event FactoryGovernanceUpdated(
         address indexed oldGovernance,
@@ -70,6 +77,15 @@ interface IProductFactory {
     function feeCollector() external view returns (address);
     function withdrawalQueue() external view returns (address);
     function riskEngine() external view returns (address);
+
+    function defaultTiltMaxBps() external view returns (uint16);
+    function defaultTiltMaxStepBps() external view returns (uint16);
+    function defaultTiltCooldown() external view returns (uint64);
+    
+    function defaultRebalanceBandBps() external view returns (uint16);
+    function rebalanceBandMinBps() external view returns (uint16);
+    function rebalanceBandMaxBps() external view returns (uint16);
+    function rebalanceBandCooldown() external view returns (uint64);
 
     // create
     function createProduct(CreateParams calldata p)
@@ -94,6 +110,19 @@ interface IProductFactory {
 
     function setRiskEngine(
         address riskEngine_
+    ) external;
+    
+    function setDefaultTiltParams(
+        uint16 maxTiltBps_,
+        uint16 maxStepBps_,
+        uint64 cooldown_
+    ) external;
+    
+    function setDefaultRebalancePolicy(
+        uint16 defaultBand_,
+        uint16 minBand_,
+        uint16 maxBand_,
+        uint64 cooldown_
     ) external;
 
     function transferGovernance(

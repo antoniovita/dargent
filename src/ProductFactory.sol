@@ -17,15 +17,24 @@ error NotGovernance();
 error ZeroAddress();
 error InvalidWeights();
 error LengthMismatch();
-error InvalidFundType();
 error InvalidBps();
 error AssetNotApproved(address asset);
 error StrategyNotActive(address implementation);
 error StrategyNotSupported(address implementation, address asset);
 error ZeroWeight(uint256 index);
+error InvalidTiltParams();
+error InvalidRebalancePolicy();
 
 contract ProductFactory is IProductFactory {
     using Clones for address;
+
+    uint16 internal constant MAX_ALLOWED_TILT_BPS = 1500; //15%
+    uint64 internal constant MIN_TILT_COOLDOWN = 1 days;
+    uint64 internal constant MAX_TILT_COOLDOWN = 14 days;
+
+    uint16 internal constant MAX_ALLOWED_REBALANCE_BAND_BPS = 500; //5%
+    uint64 internal constant MIN_REBALANCE_COOLDOWN = 1 days;
+    uint64 internal constant MAX_REBALANCE_COOLDOWN = 30 days;
 
     address public governance;
     address public immutable fundImplementation;
@@ -36,6 +45,13 @@ contract ProductFactory is IProductFactory {
     address public feeCollector;
     address public withdrawalQueue;
     address public riskEngine;
+    uint16 public defaultTiltMaxBps;
+    uint16 public defaultTiltMaxStepBps;
+    uint64 public defaultTiltCooldown;
+    uint16 public defaultRebalanceBandBps;
+    uint16 public rebalanceBandMinBps;
+    uint16 public rebalanceBandMaxBps;
+    uint64 public rebalanceBandCooldown;
 
     constructor(
         address fundImpl,
@@ -62,13 +78,24 @@ contract ProductFactory is IProductFactory {
 
         fundImplementation = fundImpl;
         managerImplementation = managerImpl;
+
         productRegistry = productReg;
         strategyRegistry = strategyReg;
         assetRegistry = assetReg;
+
         feeCollector = feeCollector_;
         withdrawalQueue = withdrawalQueue_;
         riskEngine = riskEngine_;
         governance = governance_;
+
+        defaultTiltMaxBps = 1000;
+        defaultTiltMaxStepBps = 300;
+        defaultTiltCooldown = 3 days;
+
+        defaultRebalanceBandBps = 200;
+        rebalanceBandMinBps = 150;
+        rebalanceBandMaxBps = 300;
+        rebalanceBandCooldown = 7 days;
     }
 
     //modifiers
@@ -92,12 +119,6 @@ contract ProductFactory is IProductFactory {
     uint256 len = p.strategyImplementations.length;
     if (len != p.weightsBps.length) revert LengthMismatch();
     if (len == 0) revert InvalidWeights();
-
-    if (p.fundType == FundType.HOUSE) {
-        if (msg.sender != governance) revert NotGovernance();
-    } else if (p.fundType != FundType.MANAGED) {
-        revert InvalidFundType();
-    }
 
     uint256 sum;
     for (uint256 i; i < len; i++) {
@@ -123,14 +144,26 @@ contract ProductFactory is IProductFactory {
     function _initializeManager(
         address manager,
         address fund,
-        CreateParams calldata p
+        CreateParams calldata p,
+        address managerOwner
     ) internal {
         IManagerInit(manager).initialize(
             fund,
             address(this),
+            managerOwner,
             riskEngine,
             p.asset,
             strategyRegistry,
+
+            defaultTiltMaxBps,
+            defaultTiltMaxStepBps,
+            defaultTiltCooldown,
+
+            defaultRebalanceBandBps,
+            rebalanceBandMinBps,
+            rebalanceBandMaxBps,
+            rebalanceBandCooldown,
+            
             p.strategyImplementations,
             p.weightsBps
         );
@@ -140,7 +173,6 @@ contract ProductFactory is IProductFactory {
         IFundInit(fund).initialize(
             p.asset,
             manager,
-            IFundInit.FundType(uint8(p.fundType)),
             p.bufferBps,
             IFundInit.FeeConfig({
                 mgmtFeeBps: p.mgmtFeeBps,
@@ -172,7 +204,6 @@ contract ProductFactory is IProductFactory {
     ) internal {
         IProductRegistry(productRegistry).registerProduct(
             fund,
-            IProductRegistry.FundType(uint8(p.fundType)),
             manager,
             p.asset,
             productOwner,
@@ -183,7 +214,6 @@ contract ProductFactory is IProductFactory {
             fund,
             manager,
             msg.sender,
-            uint8(p.fundType),
             p.asset,
             productOwner,
             feeCollector,
@@ -197,13 +227,13 @@ contract ProductFactory is IProductFactory {
     {
         _validateCreateParams(p);
 
-        address productOwner = (p.fundType == FundType.HOUSE) ? governance : msg.sender;
+        address productOwner = msg.sender;
 
         manager = managerImplementation.clone();
         fund = fundImplementation.clone();
 
         _initializeFund(fund, manager, p);
-        _initializeManager(manager, fund, p);
+        _initializeManager(manager, fund, p, productOwner);
 
         strategyInstances = _strategyInstances(manager);
         emit ProductAllocationConfigured(manager, p.strategyImplementations, p.weightsBps);
@@ -248,6 +278,46 @@ contract ProductFactory is IProductFactory {
     {
         riskEngine = riskEngine_;
         emit RiskEngineUpdated(riskEngine_);
+    }
+
+    function setDefaultTiltParams(uint16 maxTiltBps_, uint16 maxStepBps_, uint64 cooldown_) external isGovernance {
+        if (
+            maxTiltBps_ == 0 ||
+            maxStepBps_ == 0 ||
+            maxStepBps_ > maxTiltBps_ ||
+            maxTiltBps_ > MAX_ALLOWED_TILT_BPS ||
+            cooldown_ < MIN_TILT_COOLDOWN ||
+            cooldown_ > MAX_TILT_COOLDOWN
+        ) revert InvalidTiltParams();
+
+        defaultTiltMaxBps = maxTiltBps_;
+        defaultTiltMaxStepBps = maxStepBps_;
+        defaultTiltCooldown = cooldown_;
+
+        emit DefaultTiltParamsUpdated(maxTiltBps_, maxStepBps_, cooldown_);
+    }
+
+    function setDefaultRebalancePolicy(
+        uint16 defaultBand_,
+        uint16 minBand_,
+        uint16 maxBand_,
+        uint64 cooldown_
+    ) external isGovernance {
+        if (
+            minBand_ == 0 ||
+            minBand_ > defaultBand_ ||
+            defaultBand_ > maxBand_ ||
+            maxBand_ > MAX_ALLOWED_REBALANCE_BAND_BPS ||
+            cooldown_ < MIN_REBALANCE_COOLDOWN ||
+            cooldown_ > MAX_REBALANCE_COOLDOWN
+        ) revert InvalidRebalancePolicy();
+
+        defaultRebalanceBandBps = defaultBand_;
+        rebalanceBandMinBps = minBand_;
+        rebalanceBandMaxBps = maxBand_;
+        rebalanceBandCooldown = cooldown_;
+
+        emit DefaultRebalancePolicyUpdated(defaultBand_, minBand_, maxBand_, cooldown_);
     }
 
     function transferGovernance(address newGovernance)

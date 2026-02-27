@@ -2,10 +2,6 @@
 pragma solidity ^0.8.20;
 
 interface IFundInit {
-    enum FundType {
-        HOUSE,
-        MANAGED
-    }
 
     struct FeeConfig {
         uint16 mgmtFeeBps;
@@ -16,7 +12,6 @@ interface IFundInit {
     function initialize(
         address asset_,
         address manager_,
-        FundType fundType_,
         uint16 bufferBps_,
         FeeConfig calldata feeConfig_,
         address feeCollector_,

@@ -11,7 +11,6 @@ error ZeroAddress();
 error ProductAlreadyRegistered(address fund);
 error ProductNotRegistered(address fund);
 error InvalidStatus();
-error InvalidFundType();
 error ManagerAlreadyMapped(address manager);
 error FactoryNotAllowed(address factory);
 
@@ -60,10 +59,6 @@ contract ProductRegistry is IProductRegistry {
 
     function status(address fund) external view override returns (Status) {
         return _products[fund].status;
-    }
-
-    function fundType(address fund) external view override returns (FundType) {
-        return _products[fund].fundType;
     }
 
     function managerOf(address fund) external view override returns (address) {
@@ -131,7 +126,6 @@ contract ProductRegistry is IProductRegistry {
     //write
     function registerProduct(
         address fund,
-        FundType fundType_,
         address manager,
         address asset,
         address productOwner,
@@ -147,8 +141,6 @@ contract ProductRegistry is IProductRegistry {
     {
         if (isProduct(fund)) revert ProductAlreadyRegistered(fund);
 
-        if (fundType_ != FundType.HOUSE && fundType_ != FundType.MANAGED) revert InvalidFundType();
-
         if (_fundByManager[manager] != address(0)) revert ManagerAlreadyMapped(manager);
 
         uint256 sharePrice_ = IFund(fund).convertToAssets(1e18);
@@ -157,7 +149,6 @@ contract ProductRegistry is IProductRegistry {
 
         _products[fund] = ProductInfo({
             status: Status.ACTIVE,
-            fundType: fundType_,
             manager: manager,
             asset: asset,
             productOwner: productOwner,
@@ -175,7 +166,6 @@ contract ProductRegistry is IProductRegistry {
             manager,
             asset,
             productOwner,
-            fundType_,
             metadataURI_,
             sharePrice_,
             riskTier_,

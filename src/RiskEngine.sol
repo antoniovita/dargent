@@ -9,13 +9,30 @@ import {IManager} from "./interfaces/IManager.sol";
 error NotGovernance();
 error ZeroAddress();
 error InvalidThresholds();
+error InvalidRiskParams();
 error NotApprovedStrategy(address implementation);
+error UpdateTooSoon();
+error ThresholdsUpdateNotQueued(bytes32 id);
+error ThresholdsUpdateNotReady(bytes32 id, uint64 eta);
 
 contract RiskEngine is IRiskEngine {
+    
+    uint32 internal constant DEFAULT_MAX_SCORE_DELTA = 50;
+    uint64 internal constant DEFAULT_MIN_UPDATE_DELAY = 1 days;
+    uint64 internal constant DEFAULT_THRESHOLDS_TIMELOCK = 2 days;
+
     address public governance;
     address public strategyRegistry;
     uint32[] internal _tierThresholds;
     string public metadataURI;
+    uint32 public maxScoreDelta;
+    uint64 public minUpdateDelay;
+    uint64 public thresholdsTimelock;
+
+    mapping(address => uint32) internal _lastScore;
+    mapping(address => uint8) internal _lastTier;
+    mapping(address => uint64) internal _lastUpdatedAt;
+    mapping(bytes32 => uint64) public queuedThresholdEta;
 
     constructor(
         address strategyRegistry_,
@@ -31,6 +48,7 @@ contract RiskEngine is IRiskEngine {
         emit MetadataURISet(metadataURI_);
 
         _setTierThresholds(tierThresholds_);
+        _setRiskParams(DEFAULT_MAX_SCORE_DELTA, DEFAULT_MIN_UPDATE_DELAY, DEFAULT_THRESHOLDS_TIMELOCK);
     }
 
     //modifier
@@ -40,8 +58,17 @@ contract RiskEngine is IRiskEngine {
     }
 
     //views
-    function tierThresholds() external view returns (uint32[] memory) {
+    function tierThresholds() external view override returns (uint32[] memory) {
         return _tierThresholds;
+    }
+
+    function lastPublishedRisk(address manager)
+        external
+        view
+        override
+        returns (uint8 riskTier, uint32 riskScore, uint64 updatedAt)
+    {
+        return (_lastTier[manager], _lastScore[manager], _lastUpdatedAt[manager]);
     }
 
     //governance
@@ -59,8 +86,31 @@ contract RiskEngine is IRiskEngine {
         emit StrategyRegistryUpdated(old, newReg);
     }
 
-    function setTierThresholds(uint32[] calldata newThresholds) external onlyGovernance {
+    function queueTierThresholds(uint32[] calldata newThresholds) external override onlyGovernance {
+        _validateThresholds(newThresholds);
+        bytes32 id = keccak256(abi.encode(newThresholds));
+        uint64 eta = uint64(block.timestamp) + thresholdsTimelock;
+        queuedThresholdEta[id] = eta;
+        emit ThresholdsUpdateQueued(id, eta);
+    }
+
+    function executeTierThresholds(uint32[] calldata newThresholds) external override onlyGovernance {
+        bytes32 id = keccak256(abi.encode(newThresholds));
+        uint64 eta = queuedThresholdEta[id];
+        if (eta == 0) revert ThresholdsUpdateNotQueued(id);
+        if (block.timestamp < eta) revert ThresholdsUpdateNotReady(id, eta);
+
+        delete queuedThresholdEta[id];
         _setTierThresholds(newThresholds);
+        emit ThresholdsUpdateExecuted(id);
+    }
+
+    function setRiskParams(uint32 maxScoreDelta_, uint64 minUpdateDelay_, uint64 thresholdsTimelock_)
+        external
+        override
+        onlyGovernance
+    {
+        _setRiskParams(maxScoreDelta_, minUpdateDelay_, thresholdsTimelock_);
     }
 
     function setMetadataURI(string calldata newURI) external onlyGovernance {
@@ -68,12 +118,46 @@ contract RiskEngine is IRiskEngine {
         emit MetadataURISet(newURI);
     }
 
-    function computeRisk(address manager)
+    function computeRiskRaw(address manager)
         external
         view
         override
         returns (uint8 riskTier, uint32 riskScore)
     {
+        return _computeRiskRaw(manager);
+    }
+
+    function refreshRisk(address manager) external override returns (uint8 riskTier, uint32 riskScore) {
+        if (manager == address(0)) revert ZeroAddress();
+
+        uint64 lastAt = _lastUpdatedAt[manager];
+        if (lastAt != 0 && block.timestamp < lastAt + minUpdateDelay) revert UpdateTooSoon();
+
+        (, uint32 rawScore) = _computeRiskRaw(manager);
+        uint32 boundedScore = rawScore;
+        uint32 prevScore = _lastScore[manager];
+
+        if (lastAt != 0) {
+            unchecked {
+                uint32 up = prevScore + maxScoreDelta;
+                if (boundedScore > up) boundedScore = up;
+            }
+
+            uint32 down = prevScore > maxScoreDelta ? prevScore - maxScoreDelta : 0;
+            if (boundedScore < down) boundedScore = down;
+        }
+
+        uint8 boundedTier = _tierForScore(boundedScore);
+
+        _lastScore[manager] = boundedScore;
+        _lastTier[manager] = boundedTier;
+        _lastUpdatedAt[manager] = uint64(block.timestamp);
+
+        emit RiskPublished(manager, rawScore, boundedScore, boundedTier);
+        return (boundedTier, boundedScore);
+    }
+
+    function _computeRiskRaw(address manager) internal view returns (uint8 riskTier, uint32 riskScore) {
         if (manager == address(0)) revert ZeroAddress();
 
         IManager m = IManager(manager);
@@ -123,9 +207,7 @@ contract RiskEngine is IRiskEngine {
     }
 
     function _setTierThresholds(uint32[] memory arr) internal {
-        for (uint256 i = 1; i < arr.length; i++) {
-            if (arr[i] <= arr[i - 1]) revert InvalidThresholds();
-        }
+        _validateThresholds(arr);
 
         delete _tierThresholds;
         for (uint256 i = 0; i < arr.length; i++) {
@@ -133,5 +215,21 @@ contract RiskEngine is IRiskEngine {
         }
 
         emit TierThresholdsUpdated(_tierThresholds);
+    }
+
+    function _validateThresholds(uint32[] memory arr) internal pure {
+        for (uint256 i = 1; i < arr.length; i++) {
+            if (arr[i] <= arr[i - 1]) revert InvalidThresholds();
+        }
+    }
+
+    function _setRiskParams(uint32 maxScoreDelta_, uint64 minUpdateDelay_, uint64 thresholdsTimelock_) internal {
+        if (maxScoreDelta_ == 0 || minUpdateDelay_ == 0 || thresholdsTimelock_ == 0) revert InvalidRiskParams();
+
+        maxScoreDelta = maxScoreDelta_;
+        minUpdateDelay = minUpdateDelay_;
+        thresholdsTimelock = thresholdsTimelock_;
+
+        emit RiskParamsUpdated(maxScoreDelta_, minUpdateDelay_, thresholdsTimelock_);
     }
 }

@@ -98,7 +98,6 @@ contract BaseTest is Test {
         // register/activate strategy
         IStrategyRegistry.StrategyInfo memory infoLiquid = IStrategyRegistry.StrategyInfo({
             status: IStrategyRegistry.Status.ACTIVE,
-            riskTier: 2,
             riskScore: 450,
             isLiquid: true,
             metadataURI: "ipfs://...",
@@ -108,7 +107,6 @@ contract BaseTest is Test {
 
         IStrategyRegistry.StrategyInfo memory infoNotLiquid = IStrategyRegistry.StrategyInfo({
             status: IStrategyRegistry.Status.ACTIVE,
-            riskTier: 4,
             riskScore: 450,
             isLiquid: false,
             metadataURI: "ipfs://...",
